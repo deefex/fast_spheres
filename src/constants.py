@@ -33,6 +33,14 @@ def precompute_constants(light_dir, radius, max_index, p=8):
 
     lx, ly, lz = light_dir
     r = radius
+    
+    # Normalise light direction
+    Lnorm = np.sqrt(lx*lx + ly*ly + lz*lz)
+    if Lnorm == 0:
+        raise ValueError("light_dir cannot be zero vector")
+    lx /= Lnorm
+    ly /= Lnorm
+    lz /= Lnorm
 
     # Vector magnitude
     B_C = np.sqrt(lx**2 + ly**2 + lz**2)
