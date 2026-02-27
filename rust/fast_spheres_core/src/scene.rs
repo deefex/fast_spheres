@@ -34,6 +34,8 @@ pub struct Scene {
     pub background: [u8; 3],
     #[serde(default)]
     pub shading_method: ShadingMethod,
+    #[serde(default)]
+    pub parallel: bool,
     pub spheres: Vec<Sphere>,
 }
 

@@ -1,11 +1,16 @@
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PY_ARCHIVE_ROOT = REPO_ROOT / "archive" / "python"
+sys.path.insert(0, str(PY_ARCHIVE_ROOT))
 
 from src.fast_spheres import Sphere, render_spheres
 
@@ -79,7 +84,7 @@ class TestRustParity(unittest.TestCase):
         if shutil.which("cargo") is None:
             self.skipTest("cargo not found")
 
-        repo_root = Path(__file__).resolve().parents[1]
+        repo_root = REPO_ROOT
         rust_dir = repo_root / "rust"
         scene_path = rust_dir / "scenes" / "demo_scene.json"
 

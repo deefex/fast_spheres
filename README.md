@@ -1,125 +1,106 @@
 # fast_spheres
 
-Python recreation of the Fast Spheres rendering approach from the original
-university project/paper work: Lambert-style shaded sphere images using a
-parabolic surface approximation and differencing-based raster paths.
+Modern recreation of the Fast Spheres project, now centered on a Rust interactive renderer.
 
-## What this repo currently does
+## Primary Engine (Rust)
 
-- Renders multiple intersecting spheres into a single image.
-- Uses a z-buffer for visibility between overlapping spheres.
-- Supports three per-sphere shading paths:
-  - `direct`: dense vectorized reference implementation
-  - `diff`: Bresenham-bounded row filling + differencing updates
-  - `diff_view`: optimized view-direction variant using octant symmetry
-- Includes parity tests and benchmark tooling.
+The primary implementation is in `rust/`:
 
-## Quick start
+- `rust/fast_spheres_core`: rendering core (Lambert/parabolic fast-sphere variants)
+- `rust/fast_spheres_app`: interactive app + file render utility
+- `rust/scenes/*.json`: demo scene inputs
 
-From the project root:
+## Quick Start (Rust)
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+cd /Users/deefex/github/fast_spheres/rust
+cargo run -p fast_spheres_app -- scenes/demo_scene.json --interactive --scene2 scenes/demo_scene_alt.json
 ```
 
-## Main entrypoint
-
-Run the demo scene:
+Dense stress scene:
 
 ```bash
-python -m src.cli demo
+cd /Users/deefex/github/fast_spheres/rust
+cargo run -p fast_spheres_app -- scenes/demo_dense_parallel.json --interactive --continuous --scene2 scenes/demo_dense.json
 ```
 
-Useful demo options:
+## Controls
+
+- `Arrow keys` / `WASD`: move light direction
+- `Left mouse drag`: rotate light direction
+- `H`: toggle help overlay
+- `C`: toggle redraw mode (`on-change` / `continuous`)
+- `T`: toggle renderer (`sequential` / `parallel`)
+- `1` / `2`: switch between primary and secondary scenes (`--scene2`)
+- `P`: save PNG snapshot to `rust/snapshot_<unix_ts>.png`
+- `R`: reset light
+- `Esc`: quit
+
+## Screenshots
+
+Demo scene (clean view):
+
+![Demo Scene Clean](images/demo_scene1.png)
+
+Demo scene (with compact help overlay):
+
+![Demo Scene Overlay](images/demo_scene2.png)
+
+Dense scene (continuous + parallel):
+
+![Dense Scene Parallel 1](images/dense_scene1.png)
+
+Dense scene (alternate light/view):
+
+![Dense Scene Parallel 2](images/dense_scene2.png)
+
+## Performance Tracking
+
+Use:
 
 ```bash
-python -m src.cli demo --method auto
-python -m src.cli demo --method diff
-python -m src.cli demo --method diff_view
-python -m src.cli demo --no-show --width 640 --height 480
+cd /Users/deefex/github/fast_spheres
+make perf-note
 ```
 
-`--method` values:
-- `auto`: choose `diff_view` for view-direction lighting, else `diff`
-- `direct`: force direct/vectorized shading
-- `diff`: force differencing path
-- `diff_view`: force view-direction octant-symmetry path
-
-## Benchmarks
-
-Quick preset:
-
-```bash
-python -m src.cli benchmark --preset quick
-```
-
-Full preset:
-
-```bash
-python -m src.cli benchmark --preset full
-```
-
-Force a specific method in scene benchmarks:
-
-```bash
-python -m src.cli benchmark --preset quick --method diff
-```
-
-## Rust workspace (scaffold)
-
-A Rust workspace now exists at `rust/` for the next phase:
-
-- `rust/fast_spheres_core`: renderer core library
-- `rust/fast_spheres_app`: small binary that loads a JSON scene and writes a PPM image
-- `rust/scenes/demo_scene.json`: starter scene
-
-Run it:
-
-```bash
-cd rust
-cargo run -p fast_spheres_app -- scenes/demo_scene.json out.ppm
-```
-
-This is an initial scaffold and currently uses a straightforward baseline renderer.
-`Scene` JSON now supports `"shading_method"` with values:
-- `"auto"`
-- `"direct"`
-- `"diff"`
-- `"diff_view"`
+Then run the interactive scenarios and fill FPS values in `PERF_NOTES.md`.
 
 ## Tests
 
-Run regression tests:
+Rust + parity tests:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py" -v
+cd /Users/deefex/github/fast_spheres
+make test
 ```
 
-Current tests cover:
-- parity between `direct` and `diff`
-- parity/tolerance for `direct` vs `diff_view` in view-direction lighting
-- z-buffer overlap ordering (nearer sphere wins)
-- cross-language parity check (Python vs Rust on shared demo scene)
+## Archived Python Implementation
 
-Convenience make targets:
+The original Python recreation is archived under:
+
+- `archive/python/src`
+- `archive/python/tests`
+- `archive/python/requirements.txt`
+
+Legacy commands:
 
 ```bash
+cd /Users/deefex/github/fast_spheres
+make legacy-test-py
+make legacy-bench
+make legacy-demo
+```
+
+## Common Make Targets
+
+```bash
+make demo
+make bench
+make rust-interactive
+make rust-interactive-dense
+make rust-interactive-dense-parallel
 make parity
-make test-rust
-make test-py
 make test
 make fmt
 make fmt-check
 ```
-
-## File map
-
-- `src/cli.py`: user entrypoint (`demo`, `benchmark`)
-- `src/fast_spheres.py`: scene rendering and z-buffer composition
-- `src/shading.py`: per-sphere shading implementations
-- `src/constants.py`: precomputed constants for shading equations
-- `src/benchmark.py`: benchmark helpers
-- `tests/test_rendering.py`: rendering and z-buffer regression tests
-- `experiments/diff_shading.py`: legacy analysis/validation script

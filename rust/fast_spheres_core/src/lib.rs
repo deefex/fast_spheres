@@ -2,6 +2,11 @@ pub mod scene;
 
 pub use scene::{Scene, ShadingMethod, Sphere};
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+#[cfg(feature = "parallel")]
+use std::sync::Mutex;
+
 #[derive(Clone, Debug)]
 pub struct RenderResult {
     pub width: usize,
@@ -21,6 +26,11 @@ struct Constants {
 }
 
 pub fn render_scene(scene: &Scene) -> RenderResult {
+    #[cfg(feature = "parallel")]
+    if scene.parallel {
+        return render_scene_parallel(scene);
+    }
+
     let width = scene.width as usize;
     let height = scene.height as usize;
 
@@ -42,36 +52,21 @@ pub fn render_scene(scene: &Scene) -> RenderResult {
         let consts = precompute_constants(sphere.light_dir, radius, 255);
         let method = resolve_method(scene.shading_method, consts);
 
-        match method {
-            ShadingMethod::Auto => unreachable!(),
-            ShadingMethod::Direct => render_sphere_direct(
+        let mut writer = |gx: i32, gy: i32, z: f32, brightness: f32| {
+            write_pixel_if_nearer_seq(
+                gx,
+                gy,
+                z,
+                brightness,
                 sphere,
-                radius,
-                consts,
                 width,
                 height,
                 &mut rgb,
                 &mut z_buffer,
-            ),
-            ShadingMethod::Diff => render_sphere_diff(
-                sphere,
-                radius,
-                consts,
-                width,
-                height,
-                &mut rgb,
-                &mut z_buffer,
-            ),
-            ShadingMethod::DiffView => render_sphere_diff_view(
-                sphere,
-                radius,
-                consts,
-                width,
-                height,
-                &mut rgb,
-                &mut z_buffer,
-            ),
-        }
+            )
+        };
+
+        render_sphere_with_method(sphere, radius, consts, method, &mut writer);
     }
 
     RenderResult {
@@ -79,6 +74,84 @@ pub fn render_scene(scene: &Scene) -> RenderResult {
         height,
         rgb,
         z_buffer,
+    }
+}
+
+#[cfg(feature = "parallel")]
+#[derive(Debug)]
+struct RowData {
+    z: Vec<f32>,
+    rgb: Vec<u8>,
+}
+
+#[cfg(feature = "parallel")]
+fn render_scene_parallel(scene: &Scene) -> RenderResult {
+    let width = scene.width as usize;
+    let height = scene.height as usize;
+
+    let mut rows = Vec::with_capacity(height);
+    for _ in 0..height {
+        let mut row = RowData {
+            z: vec![f32::INFINITY; width],
+            rgb: vec![0u8; width * 3],
+        };
+        for px in row.rgb.chunks_exact_mut(3) {
+            px[0] = scene.background[0];
+            px[1] = scene.background[1];
+            px[2] = scene.background[2];
+        }
+        rows.push(Mutex::new(row));
+    }
+
+    scene.spheres.par_iter().for_each(|sphere| {
+        let radius = sphere.radius.round() as i32;
+        if radius <= 0 {
+            return;
+        }
+
+        let consts = precompute_constants(sphere.light_dir, radius, 255);
+        let method = resolve_method(scene.shading_method, consts);
+
+        let mut writer = |gx: i32, gy: i32, z: f32, brightness: f32| {
+            write_pixel_if_nearer_parallel(gx, gy, z, brightness, sphere, width, height, &rows)
+        };
+
+        render_sphere_with_method(sphere, radius, consts, method, &mut writer);
+    });
+
+    let mut rgb = vec![0u8; width * height * 3];
+    let mut z_buffer = vec![f32::INFINITY; width * height];
+
+    for (y, row_mtx) in rows.iter().enumerate() {
+        let row = row_mtx.lock().expect("row lock poisoned");
+        let z_dst = &mut z_buffer[y * width..(y + 1) * width];
+        let rgb_dst = &mut rgb[y * width * 3..(y + 1) * width * 3];
+        z_dst.copy_from_slice(&row.z);
+        rgb_dst.copy_from_slice(&row.rgb);
+    }
+
+    RenderResult {
+        width,
+        height,
+        rgb,
+        z_buffer,
+    }
+}
+
+fn render_sphere_with_method<F>(
+    sphere: &Sphere,
+    radius: i32,
+    consts: Constants,
+    method: ShadingMethod,
+    writer: &mut F,
+) where
+    F: FnMut(i32, i32, f32, f32),
+{
+    match method {
+        ShadingMethod::Auto => unreachable!(),
+        ShadingMethod::Direct => render_sphere_direct(sphere, radius, consts, writer),
+        ShadingMethod::Diff => render_sphere_diff(sphere, radius, consts, writer),
+        ShadingMethod::DiffView => render_sphere_diff_view(sphere, radius, consts, writer),
     }
 }
 
@@ -196,7 +269,7 @@ fn brightness_from_f(f_val: f64, denom: f64, sphere: &Sphere) -> f32 {
     bright.powf(1.0 / gamma)
 }
 
-fn write_pixel_if_nearer(
+fn write_pixel_if_nearer_seq(
     gx: i32,
     gy: i32,
     z: f32,
@@ -223,15 +296,40 @@ fn write_pixel_if_nearer(
     rgb[p + 2] = (sphere.base_color[2] as f32 * brightness) as u8;
 }
 
-fn render_sphere_direct(
+#[cfg(feature = "parallel")]
+fn write_pixel_if_nearer_parallel(
+    gx: i32,
+    gy: i32,
+    z: f32,
+    brightness: f32,
     sphere: &Sphere,
-    radius: i32,
-    consts: Constants,
     width: usize,
     height: usize,
-    rgb: &mut [u8],
-    z_buffer: &mut [f32],
+    rows: &[Mutex<RowData>],
 ) {
+    if gx < 0 || gy < 0 || gx >= width as i32 || gy >= height as i32 {
+        return;
+    }
+
+    let y = gy as usize;
+    let x = gx as usize;
+
+    let mut row = rows[y].lock().expect("row lock poisoned");
+    if z >= row.z[x] {
+        return;
+    }
+
+    row.z[x] = z;
+    let p = x * 3;
+    row.rgb[p] = (sphere.base_color[0] as f32 * brightness) as u8;
+    row.rgb[p + 1] = (sphere.base_color[1] as f32 * brightness) as u8;
+    row.rgb[p + 2] = (sphere.base_color[2] as f32 * brightness) as u8;
+}
+
+fn render_sphere_direct<F>(sphere: &Sphere, radius: i32, consts: Constants, writer: &mut F)
+where
+    F: FnMut(i32, i32, f32, f32),
+{
     let cx = sphere.center[0].round() as i32;
     let cy = sphere.center[1].round() as i32;
     let r2 = radius * radius;
@@ -270,30 +368,15 @@ fn render_sphere_direct(
             let f_val = consts.e * d2 as f64 + consts.f * x as f64 + consts.g * y as f64 + consts.h;
             let bright = brightness_from_f(f_val, denom, sphere);
             let z = (d2 as f32 + z_bias) / r;
-            write_pixel_if_nearer(
-                cx + x,
-                cy + y,
-                z,
-                bright,
-                sphere,
-                width,
-                height,
-                rgb,
-                z_buffer,
-            );
+            writer(cx + x, cy + y, z, bright);
         }
     }
 }
 
-fn render_sphere_diff(
-    sphere: &Sphere,
-    radius: i32,
-    consts: Constants,
-    width: usize,
-    height: usize,
-    rgb: &mut [u8],
-    z_buffer: &mut [f32],
-) {
+fn render_sphere_diff<F>(sphere: &Sphere, radius: i32, consts: Constants, writer: &mut F)
+where
+    F: FnMut(i32, i32, f32, f32),
+{
     let size = (2 * radius + 1) as usize;
     let center = radius;
 
@@ -368,30 +451,15 @@ fn render_sphere_diff(
             let x = col as i32 - center;
             let y = row as i32 - center;
             let bright = brightness_from_f(f_vals[idx], denom, sphere);
-            write_pixel_if_nearer(
-                cx + x,
-                cy + y,
-                z_vals[idx],
-                bright,
-                sphere,
-                width,
-                height,
-                rgb,
-                z_buffer,
-            );
+            writer(cx + x, cy + y, z_vals[idx], bright);
         }
     }
 }
 
-fn render_sphere_diff_view(
-    sphere: &Sphere,
-    radius: i32,
-    consts: Constants,
-    width: usize,
-    height: usize,
-    rgb: &mut [u8],
-    z_buffer: &mut [f32],
-) {
+fn render_sphere_diff_view<F>(sphere: &Sphere, radius: i32, consts: Constants, writer: &mut F)
+where
+    F: FnMut(i32, i32, f32, f32),
+{
     let size = (2 * radius + 1) as usize;
     let center = radius;
 
@@ -481,17 +549,7 @@ fn render_sphere_diff_view(
             let x = col as i32 - center;
             let y = row as i32 - center;
             let bright = brightness_from_f(f_vals[idx], denom, sphere);
-            write_pixel_if_nearer(
-                cx + x,
-                cy + y,
-                z_vals[idx],
-                bright,
-                sphere,
-                width,
-                height,
-                rgb,
-                z_buffer,
-            );
+            writer(cx + x, cy + y, z_vals[idx], bright);
         }
     }
 }
@@ -520,6 +578,7 @@ mod tests {
 
         let scene = Scene::from_json_str(data).expect("scene parse failed");
         assert_eq!(scene.shading_method, ShadingMethod::Auto);
+        assert!(!scene.parallel);
     }
 
     #[test]
@@ -529,6 +588,7 @@ mod tests {
             height: 64,
             background: [0, 0, 0],
             shading_method: ShadingMethod::Direct,
+            parallel: false,
             spheres: vec![Sphere {
                 center: [32.0, 32.0],
                 radius: 16.0,
