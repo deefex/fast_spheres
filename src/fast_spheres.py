@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 from src.constants import precompute_constants
 from src.shading import compute_shading
 
+VALID_SHADING_METHODS = {"auto", "direct", "diff", "diff_view"}
+
 
 class Sphere:
     def __init__(
@@ -54,6 +56,7 @@ def render_spheres(
     img_width,
     img_height,
     background=(0, 0, 0),
+    shading_method="auto",
 ):
     """
     Render multiple spheres into a single RGB image using a z-buffer.
@@ -66,6 +69,9 @@ def render_spheres(
         Size of the output image.
     background : (R,G,B)
         Background colour.
+    shading_method : {"auto", "direct", "diff", "diff_view"}
+        Per-sphere shading path selection. "auto" selects "diff_view"
+        when lx=ly=0, otherwise "diff".
 
     Returns
     -------
@@ -84,6 +90,9 @@ def render_spheres(
 
     z_buffer = np.full((H, W), np.inf, dtype=np.float32)
 
+    if shading_method not in VALID_SHADING_METHODS:
+        raise ValueError(f"invalid shading_method={shading_method!r}")
+
     for sph in spheres:
         r = sph.radius
 
@@ -96,11 +105,21 @@ def render_spheres(
         # Pass additional parameters (z0 etc.) via dict
         consts["z0"] = sph.z0
 
+        # View-direction optimisation: radial symmetry when lx=ly=0.
+        resolved_method = shading_method
+        if resolved_method == "auto":
+            resolved_method = (
+                "diff_view"
+                if np.isclose(consts["F_C"], 0.0) and np.isclose(consts["G_C"], 0.0)
+                else "diff"
+            )
+
         # Render a local disc centred at (0,0) with our existing shading code
         # This returns:
         #   img_local : (2r, 2r, 3) uint8 (approximately)
-        #   z_local   : (2r, 2r) float in [0,1], smaller = nearer to viewer
-        img_local, z_local = compute_shading(
+        #   z_local   : (2r, 2r) absolute depth values (smaller = nearer)
+        #   mask_local: valid sphere coverage mask
+        img_local, z_local, mask_local = compute_shading(
             consts,
             size=None,
             base_color=sph.base_color,
@@ -108,6 +127,7 @@ def render_spheres(
             k_A=sph.k_A,
             gamma=sph.gamma,
             return_z=True,
+            method=resolved_method,
         )
 
         h_local, w_local = img_local.shape[:2]
@@ -128,14 +148,13 @@ def render_spheres(
                 if gx < 0 or gx >= W:
                     continue
 
-                # Treat fully black pixels as "no sphere here"
-                # (outside the circle)
-                if img_local[j, i].sum() == 0:
+                # Use the geometric disc mask instead of pixel colour.
+                if not mask_local[j, i]:
                     continue
 
                 z = float(z_local[j, i])
 
-                # z_local is already normalised; smaller is closer.
+                # Smaller z is closer to the viewer.
                 if z < z_buffer[gy, gx]:
                     z_buffer[gy, gx] = z
                     image[gy, gx, :] = img_local[j, i, :]
@@ -144,12 +163,10 @@ def render_spheres(
     return image.astype(np.uint8), z_buffer
 
 
-def demo_scene():
+def demo_scene(width=400, height=300, shading_method="auto", show=True):
     """
     Simple demo: render a few overlapping spheres.
     """
-    width, height = 400, 300
-
     spheres = [
         Sphere(center=(140, 160), radius=60,
                base_color=(220, 80, 80),
@@ -165,7 +182,12 @@ def demo_scene():
                z0=-2.0),
     ]
 
-    img, zbuf = render_spheres(spheres, img_width=width, img_height=height)
+    img, zbuf = render_spheres(
+        spheres,
+        img_width=width,
+        img_height=height,
+        shading_method=shading_method,
+    )
 
     plt.figure(figsize=(10, 5))
 
@@ -191,7 +213,12 @@ def demo_scene():
     plt.title("z-buffer (normalised)")
 
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+    return img, zbuf
 
 
 if __name__ == "__main__":
