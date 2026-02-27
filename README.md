@@ -1,4 +1,5 @@
 # fast_spheres
+[![CI](https://github.com/deefex/fast_spheres/actions/workflows/ci.yml/badge.svg)](https://github.com/deefex/fast_spheres/actions/workflows/ci.yml)
 
 Modern recreation of the Fast Spheres project, now centered on a Rust interactive renderer.
 
@@ -72,6 +73,25 @@ Rust + parity tests:
 ```bash
 cd /Users/deefex/github/fast_spheres
 make test
+```
+
+## CI and Releases
+
+GitHub Actions workflows:
+
+- `.github/workflows/ci.yml`
+  - Rust formatting/check/tests
+  - Python↔Rust parity test
+- `.github/workflows/release.yml`
+  - Runs on tags matching `v*`
+  - Builds `fast_spheres_app` on Linux/macOS/Windows
+  - Uploads packaged binaries/scenes to the GitHub Release
+
+To cut a release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ## Archived Python Implementation

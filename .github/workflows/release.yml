@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release -p fast_spheres_app
+        working-directory: rust
+
+      - name: Package (linux/macos)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist/scenes
+          cp rust/target/release/fast_spheres_app dist/
+          cp rust/scenes/*.json dist/scenes/
+          tar -czf fast_spheres_app-${{ runner.os }}.tar.gz -C dist .
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\\scenes | Out-Null
+          Copy-Item rust\\target\\release\\fast_spheres_app.exe dist\\
+          Copy-Item rust\\scenes\\*.json dist\\scenes\\
+          Compress-Archive -Path dist\\* -DestinationPath fast_spheres_app-Windows.zip
+
+      - name: Upload artifact (linux/macos)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast_spheres_app-${{ runner.os }}
+          path: fast_spheres_app-${{ runner.os }}.tar.gz
+
+      - name: Upload artifact (windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast_spheres_app-Windows
+          path: fast_spheres_app-Windows.zip
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

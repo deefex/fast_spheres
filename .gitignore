@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# fast_spheres runtime outputs
+rust/snapshot_*.png
+rust/render.ppm
