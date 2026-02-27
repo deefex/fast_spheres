@@ -1,7 +1,7 @@
 # fast_spheres
 [![CI](https://github.com/deefex/fast_spheres/actions/workflows/ci.yml/badge.svg)](https://github.com/deefex/fast_spheres/actions/workflows/ci.yml)
 
-Modern recreation of the Fast Spheres project, now centered on a Rust interactive renderer.
+A modern recreation of the my Fast Spheres Senior Honours project way back in 19[REDACTED], now centered on a Rust interactive renderer.
 
 ## Primary Engine (Rust)
 
