@@ -67,6 +67,28 @@ Force a specific method in scene benchmarks:
 python -m src.cli benchmark --preset quick --method diff
 ```
 
+## Rust workspace (scaffold)
+
+A Rust workspace now exists at `rust/` for the next phase:
+
+- `rust/fast_spheres_core`: renderer core library
+- `rust/fast_spheres_app`: small binary that loads a JSON scene and writes a PPM image
+- `rust/scenes/demo_scene.json`: starter scene
+
+Run it:
+
+```bash
+cd rust
+cargo run -p fast_spheres_app -- scenes/demo_scene.json out.ppm
+```
+
+This is an initial scaffold and currently uses a straightforward baseline renderer.
+`Scene` JSON now supports `"shading_method"` with values:
+- `"auto"`
+- `"direct"`
+- `"diff"`
+- `"diff_view"`
+
 ## Tests
 
 Run regression tests:
@@ -79,6 +101,18 @@ Current tests cover:
 - parity between `direct` and `diff`
 - parity/tolerance for `direct` vs `diff_view` in view-direction lighting
 - z-buffer overlap ordering (nearer sphere wins)
+- cross-language parity check (Python vs Rust on shared demo scene)
+
+Convenience make targets:
+
+```bash
+make parity
+make test-rust
+make test-py
+make test
+make fmt
+make fmt-check
+```
 
 ## File map
 

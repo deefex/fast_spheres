@@ -1,0 +1,3 @@
+[workspace]
+members = ["fast_spheres_core", "fast_spheres_app"]
+resolver = "2"
